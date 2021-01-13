@@ -37,13 +37,14 @@ impl From<std::io::Error> for AppErr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct WeEmail {
     subject: Option<String>,
     body: Option<String>,
     nick: Option<String>,
     irc_message: Option<String>,
     email: Option<String>,
+    irc_recipient: Option<String>,
     send_to_irc: bool
 }
 
@@ -55,6 +56,7 @@ impl WeEmail {
             body: None,
             nick: None,
             irc_message: None,
+            irc_recipient: None,
             send_to_irc: false
         }
     }
@@ -106,6 +108,21 @@ impl WeEmail {
 
         self
     }
+
+    fn set_recipient(mut self) -> Self {
+        let subject: Vec<_> = self.subject.as_ref().unwrap().split(" ").collect();
+        self.irc_recipient = Some(subject[1].to_string());
+
+        self
+    }
+
+    fn get_recipient(self) -> String {
+        self.irc_recipient.unwrap()
+    }
+
+    fn get_body(self) -> String {
+        self.body.as_ref().unwrap().to_string()
+    }
 }
 
 pub(crate) fn main() -> Result<(), AppErr> {
@@ -120,7 +137,6 @@ pub(crate) fn main() -> Result<(), AppErr> {
 
         //irc
         let _irc_node = env!("IRC_NODE");
-        let _pen_pal = env!("PEN_PAL");
         let _irc_user = env!("IRC_USER");
         let _irc_nick = env!("IRC_NICK");
 
@@ -212,10 +228,13 @@ async fn try_main() -> Result<(), AppErr> {
             let we_email = WeEmail::new(Some(email)).parse_email_subject().send_to_irc();
 
             if we_email.send_to_irc {
-                let body = we_email.parse_email_body().body.unwrap();
+                let we_email = we_email.set_recipient().parse_email_body();
+
+                let body = we_email.clone().get_body();
+                let recipient = we_email.clone().get_recipient();
 
                 let irc_command = Command::new(
-                    "PRIVMSG", vec![env!("PEN_PAL"), &body]
+                    "PRIVMSG", vec![&recipient, &body]
                 ).unwrap();
 
                 let irc_message = format!("{}\n", IrcMessage::from(irc_command).to_string());
@@ -266,17 +285,17 @@ mod tests {
 
     //this email should result in a irc message with the contents: "Hello to beebop"
     fn test_vector_one() -> Option<String> {
-        let email = "Subject: SendToIRC hello\r\nMIME-Version: 1.0\r\nContent-Type: multipart/a\
-                     lternative; \r\n\tboundary=\"----=_Part_6_139340551.1608742910254\"\r\nX-C\
-                     orrelation-ID: <35fcb212-04a8-427f-afca-8ddfc2010606@beebop.lol>\r\n\r\n--\
-                     ----=_Part_6_139340551.1608742910254\r\nContent-Type: text/plain; charset=\
-                     UTF-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\nHello to beebop\r\n\r\n---\
-                     ---=_Part_6_139340551.1608742910254\r\nContent-Type: text/html; charset=UT\
-                     F-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\n<html> \r\n <head></head> \r\
-                     \n <body> <span style=\"font-family:sans-serif\">Hello to beebop</span> \r\
-                     \n  <br>  \r\n </body>\r\n</html>\r\n------=_Part_6_139340551.160874291025\
-                     4--\r\n";
-        Some(email.to_string())
+        Some(
+            "Subject: SendToIRC radical_ed\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alterna\
+            tive; \r\n\tboundary=\"----=_Part_6_139340551.1608742910254\"\r\nX-Correlation-ID: <35\
+            fcb212-04a8-427f-afca-8ddfc2010606@beebop.lol>\r\n\r\n------=_Part_6_139340551.1608742\
+            910254\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 7bit\r\
+            \n\r\nHello to beebop\r\n\r\n------=_Part_6_139340551.1608742910254\r\nContent-Type: t\
+            ext/html; charset=UTF-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\n<html> \r\n <head></\
+            head> \r\n <body> <span style=\"font-family:sans-serif\">Hello to beebop</span> \r\n  \
+            <br>  \r\n </body>\r\n</html>\r\n------=_Part_6_139340551.1608742910254--\r\n"
+            .to_string()
+        )
     }
 
     //contains no <html> tags
@@ -318,9 +337,12 @@ mod tests {
 
     #[test]
     fn test_parse_subject() {
-        let expected_subject = Some("SendToIRC hello".to_string());
-        let we_email = WeEmail::new(test_vector_one()).parse_email_subject();
+        let expected_subject = Some("SendToIRC radical_ed".to_string());
+        let expected_recipient = Some("radical_ed".to_string());
+
+        let we_email = WeEmail::new(test_vector_one()).parse_email_subject().set_recipient();
         assert_eq!(expected_subject, we_email.subject);
+        assert_eq!(expected_recipient, we_email.irc_recipient);
 
         let we_email = we_email.send_to_irc();
         assert_eq!(true, we_email.send_to_irc);
