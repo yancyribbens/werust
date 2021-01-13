@@ -74,7 +74,7 @@ impl WeEmail {
 
     fn parse_email_body(mut self) -> Self {
         let e = self.email.as_ref().unwrap();
-        let regex_body = Regex::new(r"(?ms)^<html>.*</html>").unwrap();
+        let regex_body = Regex::new(r"(?ms)^<html.*>.*</html>").unwrap();
 
         if let Some(html_capture) = regex_body.captures_iter(e).next() {
             let document = Document::from(&html_capture[0]);
@@ -283,7 +283,7 @@ async fn try_main() -> Result<(), AppErr> {
 mod tests {
     use super::*;
 
-    //this email should result in a irc message with the contents: "Hello to beebop"
+    //this email should result in a irc message with the contents: "42"
     fn test_vector_one() -> Option<String> {
         Some(
             "Subject: SendToIRC radical_ed\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alterna\
@@ -291,10 +291,10 @@ mod tests {
             fcb212-04a8-427f-afca-8ddfc2010606@beebop.lol>\r\n\r\n------=_Part_6_139340551.1608742\
             910254\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 7bit\r\
             \n\r\nHello to beebop\r\n\r\n------=_Part_6_139340551.1608742910254\r\nContent-Type: t\
-            ext/html; charset=UTF-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\n<html> \r\n <head></\
-            head> \r\n <body> <span style=\"font-family:sans-serif\">Hello to beebop</span> \r\n  \
-            <br>  \r\n </body>\r\n</html>\r\n------=_Part_6_139340551.1608742910254--\r\n"
-            .to_string()
+            ext/html; charset=UTF-8\r\nContent-Transfer-Encoding: 7bit\r\n\r\n<html x-block=\"true\
+            \"> \r\n <head x-block=\"true\"></head> \r\n <body x-block=\"true\"> <span style=\"fon\
+            t-family:sans-serif\">42</span> \r\n  <br>  \r\n </body>\r\n</html>\r\n------=_Part_6_\
+            139340551.1608742910254--\r\n".to_string()
         )
     }
 
@@ -335,6 +335,8 @@ mod tests {
         Some(email.to_string())
     }
 
+    //html tag variation
+
     #[test]
     fn test_parse_subject() {
         let expected_subject = Some("SendToIRC radical_ed".to_string());
@@ -351,7 +353,7 @@ mod tests {
     #[test]
     fn test_parse_body() {
         let we_email = WeEmail::new(test_vector_one()).parse_email_body();
-        let expected_body = Some("Hello to beebop".to_string());
+        let expected_body = Some("42".to_string());
         assert_eq!(expected_body, we_email.body);
     }
 
