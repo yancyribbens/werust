@@ -37,7 +37,8 @@ impl From<std::io::Error> for AppErr {
     }
 }
 
-#[derive(Debug, Clone)]
+
+#[derive(Default, Debug, Clone)]
 struct WeEmail {
     subject: Option<String>,
     body: Option<String>,
@@ -50,15 +51,9 @@ struct WeEmail {
 
 impl WeEmail {
     fn new(email: Option<String>) -> WeEmail {
-        WeEmail {
-            email: email,
-            subject: None,
-            body: None,
-            nick: None,
-            irc_message: None,
-            irc_recipient: None,
-            send_to_irc: false
-        }
+        let mut we_email = WeEmail::default();
+        we_email.email = email;
+        we_email
     }
 
     fn send_to_irc(mut self) -> Self {
