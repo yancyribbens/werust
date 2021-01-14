@@ -39,7 +39,7 @@ impl From<std::io::Error> for AppErr {
 
 
 #[derive(Default, Debug, Clone)]
-struct WeEmail {
+struct Transformer {
     subject: Option<String>,
     body: Option<String>,
     nick: Option<String>,
@@ -49,11 +49,14 @@ struct WeEmail {
     send_to_irc: bool
 }
 
-impl WeEmail {
-    fn new(email: Option<String>) -> WeEmail {
-        let mut we_email = WeEmail::default();
-        we_email.email = email;
-        we_email
+// This strict handles the transformation of email communications to IRC
+// messages.
+
+impl Transformer {
+    fn new(email: Option<String>) -> Transformer {
+        let mut t = Transformer::default();
+        t.email = email;
+        t
     }
 
     fn send_to_irc(mut self) -> Self {
@@ -220,13 +223,13 @@ async fn try_main() -> Result<(), AppErr> {
 
         if let Some(email) = email {
 
-            let we_email = WeEmail::new(Some(email)).parse_email_subject().send_to_irc();
+            let transformer = Transformer::new(Some(email)).parse_email_subject().send_to_irc();
 
-            if we_email.send_to_irc {
-                let we_email = we_email.set_recipient().parse_email_body();
+            if transformer.send_to_irc {
+                let transformer = transformer.set_recipient().parse_email_body();
 
-                let body = we_email.clone().get_body();
-                let recipient = we_email.clone().get_recipient();
+                let body = transformer.clone().get_body();
+                let recipient = transformer.clone().get_recipient();
 
                 let irc_command = Command::new(
                     "PRIVMSG", vec![&recipient, &body]
@@ -337,37 +340,37 @@ mod tests {
         let expected_subject = Some("SendToIRC radical_ed".to_string());
         let expected_recipient = Some("radical_ed".to_string());
 
-        let we_email = WeEmail::new(test_vector_one()).parse_email_subject().set_recipient();
-        assert_eq!(expected_subject, we_email.subject);
-        assert_eq!(expected_recipient, we_email.irc_recipient);
+        let transformer = Transformer::new(test_vector_one()).parse_email_subject().set_recipient();
+        assert_eq!(expected_subject, transformer.subject);
+        assert_eq!(expected_recipient, transformer.irc_recipient);
 
-        let we_email = we_email.send_to_irc();
-        assert_eq!(true, we_email.send_to_irc);
+        let transformer= transformer.send_to_irc();
+        assert_eq!(true, transformer.send_to_irc);
     }
 
     #[test]
     fn test_parse_body() {
-        let we_email = WeEmail::new(test_vector_one()).parse_email_body();
+        let transformer = Transformer::new(test_vector_one()).parse_email_body();
         let expected_body = Some("42".to_string());
-        assert_eq!(expected_body, we_email.body);
+        assert_eq!(expected_body, transformer.body);
     }
 
     #[test]
     fn test_parse_body_without_html_does_not_halt() {
-        let we_email = WeEmail::new(test_vector_two()).parse_email_body();
-        assert_eq!(None, we_email.body);
+        let transformer = Transformer::new(test_vector_two()).parse_email_body();
+        assert_eq!(None, transformer.body);
     }
 
     #[test]
     fn test_email_not_destined_for_irc() {
-        let we_email = WeEmail::new(test_vector_three()).parse_email_body();
-        assert_eq!(false, we_email.send_to_irc);
+        let transformer = Transformer::new(test_vector_three()).parse_email_body();
+        assert_eq!(false, transformer.send_to_irc);
     }
 
     #[test]
     fn test_can_parse_emoji() {
-        let we_email = WeEmail::new(test_vector_four()).parse_email_body();
+        let transformer = Transformer::new(test_vector_four()).parse_email_body();
         let expected_body = Some("body :)".to_string());
-        assert_eq!(expected_body, we_email.body);
+        assert_eq!(expected_body, transformer.body);
     }
 }
