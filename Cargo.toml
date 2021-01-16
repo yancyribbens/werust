@@ -14,3 +14,6 @@ async-native-tls = { version = "0.3.3" }
 lettre = "0.10.0-alpha.2"
 regex = "1.4.2"
 select = { git = "https://github.com/utkarshkukreti/select.rs.git" }
+toml = "0.5"
+serde_derive = "1.0"
+serde = "1.0"

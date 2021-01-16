@@ -1,4 +1,9 @@
 #![recursion_limit="256"]
+
+pub mod error;
+pub mod config;
+use config::Config;
+
 use futures::select;
 use futures::FutureExt;
 use irc_proto::command::*;
@@ -12,7 +17,6 @@ use lettre::{SmtpTransport, Transport};
 use lettre::transport::smtp::authentication::Credentials;
 
 use select::document::Document;
-pub mod error;
 use error::AppErr;
 
 use async_std::{
@@ -107,33 +111,22 @@ impl Transformer {
 
 pub(crate) fn main() -> Result<(), AppErr> {
     task::block_on(async {
-
-        //email
-        let _mail_password = env!("MAIL_PASSWORD"); 
-        let _mail_login = env!("MAIL_LOGIN");
-        let _imap_server = env!("IMAP_SERVER");
-        let _mail_count = env!("MAIL_COUNT");
-        let _from_email = env!("FROM_EMAIL");
-
-        //irc
-        let _irc_node = env!("IRC_NODE");
-        let _irc_user = env!("IRC_USER");
-        let _irc_nick = env!("IRC_NICK");
-
         try_main().await?;
         Ok(())
     })
 }
 
 pub fn send_email(chan: String, msg: String) -> Option<u32> {
-    let mail_cred = env!("MAIL_PASSWORD");
-    let mail_login = env!("MAIL_LOGIN");
-    let from_email = env!("FROM_EMAIL");
+    let config = Config::load_toml();
+
+    let imap_password = env!("IMAP_PASSWORD");
+    let imap_login = &config.as_ref().unwrap().imap_login;
+    let from_email = &config.as_ref().unwrap().from_email;
 
     let subject = format!("FromIRC {}", chan);
     let from = format!("WeRust <{}>", from_email);
-    let reply_to = format!("WeRust <{}>", mail_login);
-    let to = mail_login.to_string();
+    let reply_to = format!("WeRust <{}>", imap_login);
+    let to = imap_login.to_string();
 
     let email = lettre::Message::builder()
         .from(from.parse().unwrap())
@@ -143,7 +136,7 @@ pub fn send_email(chan: String, msg: String) -> Option<u32> {
         .body(msg.to_string())
         .unwrap();
 
-    let creds = Credentials::new(mail_login.to_string(), mail_cred.to_string());
+    let creds = Credentials::new(imap_login.to_string(), imap_password.to_string());
 
     let mailer = SmtpTransport::relay("mail.gandi.net")
         .unwrap()
@@ -159,15 +152,20 @@ pub fn send_email(chan: String, msg: String) -> Option<u32> {
 }
 
 async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> {
+    let config = Config::load_toml();
+    let imap_server = &config.as_ref().unwrap().imap_server;
+    let imap_login = &config.as_ref().unwrap().imap_login;
+    let imap_inbox = &config.as_ref().unwrap().imap_session;
+
     let tls = async_native_tls::TlsConnector::new();
 
-    let imap_addr = (env!("IMAP_SERVER"), 993);
-    let client = async_imap::connect(imap_addr, env!("IMAP_SERVER"), tls).await?;
+    let imap_addr:(&str, u16)  = (&imap_server, 993);
+    let client = async_imap::connect(imap_addr, imap_server, tls).await?;
 
     let mut imap_session = client.login(
-        env!("MAIL_LOGIN"), env!("MAIL_PASSWORD")).await.map_err(|e| e.0)?;
+        imap_login, env!("IMAP_PASSWORD")).await.map_err(|e| e.0)?;
 
-    imap_session.select("INBOX").await?;
+    imap_session.select(imap_inbox).await?;
 
     let messages_stream = imap_session.fetch(email_number, "RFC822").await?;
     let messages: Vec<_> = messages_stream.collect::<async_imap::error::Result<_>>().await?;
@@ -186,22 +184,30 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
 }
 
 async fn try_main() -> Result<(), AppErr> {
-    let irc_node = env!("IRC_NODE");
-    let irc_stream = TcpStream::connect(irc_node).await?;
+    let config = Config::load_toml();
+
+    let irc_server = &config.as_ref().unwrap().irc_server;
+    let irc_user = &config.as_ref().unwrap().irc_user;
+    let irc_nick = &config.as_ref().unwrap().irc_nick;
+    let irc_first_name = &config.as_ref().unwrap().irc_first_name;
+    let irc_last_name = &config.as_ref().unwrap().irc_last_name;
+
+    let irc_stream = TcpStream::connect(irc_server).await?;
+
     let (reader, mut writer) = (&irc_stream, &irc_stream);
     let reader = BufReader::new(reader);
     let mut lines_from_server = futures::StreamExt::fuse(reader.lines());
 
-    let irc_user = format!("USER {} 0 * :Ronnie Reagan\n", env!("IRC_USER"));
-    let irc_nick = format!("NICK {}\n", env!("IRC_NICK"));
+    let irc_user = format!("USER {} 0 * :{} {}\n", irc_user, irc_first_name, irc_last_name);
+    let irc_nick = format!("NICK {}\n", irc_nick);
     writer.write_all(irc_user.as_bytes()).await?;
     writer.write_all(irc_nick.as_bytes()).await?;
 
-    let mut email_number = env!("MAIL_COUNT").to_string();
+    let mut imap_starting_at = config.as_ref().unwrap().imap_starting_at.clone();
 
     loop {
-        let number = email_number.clone();
-        let email = retrieve_email(number).await?;
+        let email_number = imap_starting_at.clone();
+        let email = retrieve_email(email_number.clone()).await?;
 
         if let Some(email) = email {
 
@@ -223,7 +229,7 @@ async fn try_main() -> Result<(), AppErr> {
                 println!("Debug: not marked for IRC forwarding");
             }
             let next_email_number = (email_number.parse::<i32>().unwrap() + 1).to_string();
-            email_number = next_email_number;
+            imap_starting_at = next_email_number;
         } else {
             println!("Debug: no new email {}", email_number);
         }
