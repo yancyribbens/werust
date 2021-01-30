@@ -110,8 +110,18 @@ impl Transformer {
 }
 
 pub(crate) fn main() -> Result<(), AppErr> {
+    let config = Config::load_toml();
+
+    let irc_server = &config.as_ref().unwrap().irc_server;
+    let irc_user = &config.as_ref().unwrap().irc_user;
+    let irc_nick = &config.as_ref().unwrap().irc_nick;
+    let irc_first_name = &config.as_ref().unwrap().irc_first_name;
+    let irc_last_name = &config.as_ref().unwrap().irc_last_name;
+
+    let imap_starting_at = config.as_ref().unwrap().imap_starting_at.clone();
+
     task::block_on(async {
-        try_main().await?;
+        try_main(irc_server, irc_user, irc_nick, irc_first_name, irc_last_name, imap_starting_at).await?;
         Ok(())
     })
 }
@@ -152,11 +162,11 @@ pub fn send_email(chan: String, msg: String) -> Option<u32> {
 }
 
 async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> {
+
     let config = Config::load_toml();
     let imap_server = &config.as_ref().unwrap().imap_server;
     let imap_login = &config.as_ref().unwrap().imap_login;
     let imap_inbox = &config.as_ref().unwrap().imap_session;
-
     let tls = async_native_tls::TlsConnector::new();
 
     let imap_addr:(&str, u16)  = (&imap_server, 993);
@@ -183,14 +193,13 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
     Ok(Some(body))
 }
 
-async fn try_main() -> Result<(), AppErr> {
-    let config = Config::load_toml();
-
-    let irc_server = &config.as_ref().unwrap().irc_server;
-    let irc_user = &config.as_ref().unwrap().irc_user;
-    let irc_nick = &config.as_ref().unwrap().irc_nick;
-    let irc_first_name = &config.as_ref().unwrap().irc_first_name;
-    let irc_last_name = &config.as_ref().unwrap().irc_last_name;
+async fn try_main(
+    irc_server: &String,
+    irc_user: &String,
+    irc_nick: &String,
+    irc_first_name: &String,
+    irc_last_name: &String,
+    mut mailbox_count: String) -> Result<(), AppErr> {
 
     let irc_stream = TcpStream::connect(irc_server).await?;
 
@@ -203,11 +212,8 @@ async fn try_main() -> Result<(), AppErr> {
     writer.write_all(irc_user.as_bytes()).await?;
     writer.write_all(irc_nick.as_bytes()).await?;
 
-    let mut imap_starting_at = config.as_ref().unwrap().imap_starting_at.clone();
-
     loop {
-        let email_number = imap_starting_at.clone();
-        let email = retrieve_email(email_number.clone()).await?;
+        let email = retrieve_email(mailbox_count.to_string()).await?;
 
         if let Some(email) = email {
 
@@ -228,10 +234,10 @@ async fn try_main() -> Result<(), AppErr> {
             } else {
                 println!("Debug: not marked for IRC forwarding");
             }
-            let next_email_number = (email_number.parse::<i32>().unwrap() + 1).to_string();
-            imap_starting_at = next_email_number;
+            let increment = mailbox_count.parse::<i32>().unwrap() + 1;
+            mailbox_count = increment.clone().to_string();
         } else {
-            println!("Debug: no new email {}", email_number);
+            println!("Debug: no new email {}", mailbox_count);
         }
 
         select! {
