@@ -25,6 +25,8 @@ use async_std::{
     task,
 };
 
+use std::time::Duration;
+
 #[derive(Default, Debug, Clone)]
 struct Transformer {
     subject: Option<String>,
@@ -110,20 +112,15 @@ impl Transformer {
 }
 
 pub(crate) fn main() -> Result<(), AppErr> {
-    let config = Config::load_toml();
+    task::spawn(async {
+        run_irc().await;
+    });
 
-    let irc_server = &config.as_ref().unwrap().irc_server;
-    let irc_user = &config.as_ref().unwrap().irc_user;
-    let irc_nick = &config.as_ref().unwrap().irc_nick;
-    let irc_first_name = &config.as_ref().unwrap().irc_first_name;
-    let irc_last_name = &config.as_ref().unwrap().irc_last_name;
+    task::spawn(async {
+        run_imap_monitor().await;
+    });
 
-    let imap_starting_at = config.as_ref().unwrap().imap_starting_at.clone();
-
-    task::block_on(async {
-        try_main(irc_server, irc_user, irc_nick, irc_first_name, irc_last_name, imap_starting_at).await?;
-        Ok(())
-    })
+    Ok(())
 }
 
 pub fn send_email(chan: String, msg: String) -> Option<u32> {
@@ -162,7 +159,6 @@ pub fn send_email(chan: String, msg: String) -> Option<u32> {
 }
 
 async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> {
-
     let config = Config::load_toml();
     let imap_server = &config.as_ref().unwrap().imap_server;
     let imap_login = &config.as_ref().unwrap().imap_login;
@@ -193,24 +189,9 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
     Ok(Some(body))
 }
 
-async fn try_main(
-    irc_server: &String,
-    irc_user: &String,
-    irc_nick: &String,
-    irc_first_name: &String,
-    irc_last_name: &String,
-    mut mailbox_count: String) -> Result<(), AppErr> {
-
-    let irc_stream = TcpStream::connect(irc_server).await?;
-
-    let (reader, mut writer) = (&irc_stream, &irc_stream);
-    let reader = BufReader::new(reader);
-    let mut lines_from_server = futures::StreamExt::fuse(reader.lines());
-
-    let irc_user = format!("USER {} 0 * :{} {}\n", irc_user, irc_first_name, irc_last_name);
-    let irc_nick = format!("NICK {}\n", irc_nick);
-    writer.write_all(irc_user.as_bytes()).await?;
-    writer.write_all(irc_nick.as_bytes()).await?;
+async fn run_imap_monitor() -> Result<(), AppErr> {
+    let config = Config::load_toml();
+    let mut mailbox_count:String = config.as_ref().unwrap().imap_starting_at.clone();
 
     loop {
         let email = retrieve_email(mailbox_count.to_string()).await?;
@@ -230,7 +211,9 @@ async fn try_main(
                 ).unwrap();
 
                 let irc_message = format!("{}\n", IrcMessage::from(irc_command).to_string());
-                writer.write_all(irc_message.as_bytes()).await?;
+
+                //TODO connect threads with ARC
+                //writer.write_all(irc_message.as_bytes()).await?;
             } else {
                 println!("Debug: not marked for IRC forwarding");
             }
@@ -239,7 +222,31 @@ async fn try_main(
         } else {
             println!("Debug: no new email {}", mailbox_count);
         }
+    }
 
+    Ok(())
+}
+
+async fn run_irc() -> Result<(), AppErr> {
+    let config = Config::load_toml();
+    let irc_server = &config.as_ref().unwrap().irc_server;
+    let irc_user = &config.as_ref().unwrap().irc_user;
+    let irc_nick = &config.as_ref().unwrap().irc_nick;
+    let irc_first_name = &config.as_ref().unwrap().irc_first_name;
+    let irc_last_name = &config.as_ref().unwrap().irc_last_name;
+
+    let irc_stream = TcpStream::connect(irc_server).await?;
+
+    let (reader, mut writer) = (&irc_stream, &irc_stream);
+    let reader = BufReader::new(reader);
+    let mut lines_from_server = futures::StreamExt::fuse(reader.lines());
+
+    let irc_user = format!("USER {} 0 * :{} {}\n", irc_user, irc_first_name, irc_last_name);
+    let irc_nick = format!("NICK {}\n", irc_nick);
+    writer.write_all(irc_user.as_bytes()).await?;
+    writer.write_all(irc_nick.as_bytes()).await?;
+
+    loop {
         select! {
             line = lines_from_server.next().fuse() => match line {
                 Some(line) => {
