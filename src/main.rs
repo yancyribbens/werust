@@ -25,6 +25,8 @@ use async_std::{
     task,
 };
 
+use imap_proto::types::{ Envelope };
+
 #[derive(Default, Debug, Clone)]
 struct Transformer {
     subject: Option<String>,
@@ -176,7 +178,7 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
 
     imap_session.select(imap_inbox).await?;
 
-    let messages_stream = imap_session.fetch(email_number, "RFC822").await?;
+    let messages_stream = imap_session.fetch(email_number, "BODY.PEEK[TEXT]").await?;
     let messages: Vec<_> = messages_stream.collect::<async_imap::error::Result<_>>().await?;
     let message = if let Some(m) = messages.first() {
         m
@@ -184,12 +186,18 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
         return Ok(None);
     };
 
-    let body = message.body().expect("message did not have a body!");
-    let body = std::str::from_utf8(body)
-        .expect("message was not valid utf-8")
-        .to_string();
+    let text = message.text().expect("message did not have any text");
+    let text = std::str::from_utf8(text);
 
-    Ok(Some(body))
+    println!("{:#?}", text);
+
+    //let body = message.body().expect("message did not have a body!");
+    //let body = std::str::from_utf8(body)
+        //.expect("message was not valid utf-8")
+        //.to_string();
+
+    //Ok(Some(body))
+    Ok(None)
 }
 
 async fn try_main(

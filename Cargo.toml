@@ -17,3 +17,4 @@ select = { git = "https://github.com/utkarshkukreti/select.rs.git" }
 toml = "0.5"
 serde_derive = "1.0"
 serde = "1.0"
+imap-proto = { version = "0.11.0" }
