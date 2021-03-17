@@ -19,6 +19,9 @@ use lettre::transport::smtp::authentication::Credentials;
 use select::document::Document;
 use error::AppErr;
 
+use async_imap::error::Error as AsyncImapError;
+use async_imap::error::Result as AsyncImapResult;
+
 use async_std::{
     io::{BufReader},
     net::{TcpStream},
@@ -52,7 +55,7 @@ impl Transformer {
             let send_to_irc_r = Regex::new(r"(?m)^SendToIRC.*").unwrap();
             if let Some(_cap) = send_to_irc_r.captures_iter(subject).next() {
                 self.send_to_irc = true;
-            }
+            };
         }
 
         self
@@ -173,8 +176,8 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
 
     imap_session.select(imap_inbox).await?;
 
-    let messages_stream = imap_session.fetch(email_number, "RFC822").await?;
-    let messages: Vec<_> = messages_stream.collect::<async_imap::error::Result<_>>().await?;
+    let messages_stream  = imap_session.fetch(email_number, "RFC822").await?;
+    let messages: Vec<_> = messages_stream.collect::<AsyncImapResult<_>>().await?;
     let message = if let Some(m) = messages.first() {
         m
     } else {
