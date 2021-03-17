@@ -8,8 +8,9 @@ edition = "2018"
 futures = "0.3.4"
 irc-proto = { version = "0.14.0" }
 irc = "0.14.1"
-async-imap = "0.4.1"
+async-imap = { git = "https://github.com/async-email/async-imap" }
 async-std = { version = "1.6.0", default-features = false, features = ["std", "attributes"] }
+async-smtp = { version = "0.3.0" }
 async-native-tls = { version = "0.3.3" }
 lettre = "0.10.0-alpha.2"
 regex = "1.4.2"
