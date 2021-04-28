@@ -164,8 +164,8 @@ pub fn send_email(chan: String, msg: String) -> Option<u32> {
 }
 
 async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> {
-
     let config = Config::load_toml();
+
     let imap_server = &config.as_ref().unwrap().imap_server;
     let imap_login = &config.as_ref().unwrap().imap_login;
     let imap_inbox = &config.as_ref().unwrap().imap_session;
@@ -215,7 +215,15 @@ async fn try_main(
     writer.write_all(irc_nick.as_bytes()).await?;
 
     loop {
-        let email = retrieve_email(mailbox_count.to_string()).await?;
+        let email_result = retrieve_email(mailbox_count.to_string()).await;
+
+        let email = match email_result {
+            Ok(email) => email,
+            Err(e) => {
+                println!("oops! {:?}", e);
+                continue
+            }
+        };
 
         if let Some(email) = email {
 
