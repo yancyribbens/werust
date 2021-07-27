@@ -4,6 +4,9 @@ pub mod error;
 pub mod config;
 use config::Config;
 
+//todo remove
+use std::{thread, time};
+
 use futures::select;
 use futures::FutureExt;
 use irc_proto::command::*;
@@ -214,6 +217,17 @@ async fn try_main(
     writer.write_all(irc_user.as_bytes()).await?;
     writer.write_all(irc_nick.as_bytes()).await?;
 
+
+    let irc_password = env!("IRC_PASSWORD");
+    let id_message = format!("IDENTIFY yancy {}", irc_password);
+    let irc_command = Command::new(
+        "PRIVMSG",
+        vec!["NickServ", &id_message]
+    ).unwrap();
+
+	let irc_message = format!("{}\n", IrcMessage::from(irc_command).to_string());
+    writer.write_all(irc_message.as_bytes()).await?;
+
     loop {
         let email_result = retrieve_email(mailbox_count.to_string()).await;
 
@@ -255,6 +269,7 @@ async fn try_main(
                 Some(line) => {
                     let line = line?;
                     let message = line.parse::<IrcMessage>().unwrap();
+                    println!("{}", message);
 
                     match message.command {
                         Command::PING(ref server, ref _server_two) => {
