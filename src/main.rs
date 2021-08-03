@@ -26,6 +26,7 @@ use async_std::{
     io::{BufReader},
     net::{TcpStream},
     task,
+    sync::Arc
 };
 
 use std::time::Duration;
@@ -114,15 +115,31 @@ impl Transformer {
     }
 }
 
-pub(crate) fn main() -> Result<(), AppErr> {
-    task::spawn(async {
-        run_irc().await;
+#[async_std::main]
+pub(crate) async fn main() -> Result<(), AppErr> {
+    let config = Config::load_toml();
+    let irc_server = &config.as_ref().unwrap().irc_server;
+    println!("connectiong to: {}", irc_server);
+    let stream = TcpStream::connect(irc_server).await?;
+
+    let s = Arc::new(stream);
+    let s0 = s.clone();
+
+    let irc_handle = task::spawn(async {
+        irc_listener(s).await;
     });
 
-    task::spawn(async {
-        run_imap_monitor().await;
+    let imap_handle = task::spawn(async {
+        run_imap_monitor(s0).await;
     });
 
+    irc_handle.await;
+    imap_handle.await;
+
+    Ok(())
+}
+
+async fn connect(stream: &TcpStream) -> Result<(), AppErr> {
     Ok(())
 }
 
@@ -192,11 +209,15 @@ async fn retrieve_email(email_number: String) -> Result<Option<String>, AppErr> 
     Ok(Some(body))
 }
 
-async fn run_imap_monitor() -> Result<(), AppErr> {
+async fn run_imap_monitor(stream: Arc<TcpStream>) -> Result<(), AppErr> {
     let config = Config::load_toml();
     let mut mailbox_count:String = config.as_ref().unwrap().imap_starting_at.clone();
+    let mut stream = &*stream;
 
     loop {
+        task::sleep(Duration::from_secs(10)).await;
+
+        println!("checking email\n");
         let email = retrieve_email(mailbox_count.to_string()).await?;
 
         if let Some(email) = email {
@@ -215,8 +236,7 @@ async fn run_imap_monitor() -> Result<(), AppErr> {
 
                 let irc_message = format!("{}\n", IrcMessage::from(irc_command).to_string());
 
-                //TODO connect threads with ARC
-                //writer.write_all(irc_message.as_bytes()).await?;
+                stream.write_all(irc_message.as_bytes()).await?;
             } else {
                 println!("Debug: not marked for IRC forwarding");
             }
@@ -230,54 +250,48 @@ async fn run_imap_monitor() -> Result<(), AppErr> {
     Ok(())
 }
 
-async fn run_irc() -> Result<(), AppErr> {
+async fn irc_listener(stream: Arc<TcpStream>) -> Result<(), AppErr> {
+    println!("run listener\n");
     let config = Config::load_toml();
-    let irc_server = &config.as_ref().unwrap().irc_server;
+
+    let (reader, mut writer) = (&*stream, &*stream);
+    let reader = BufReader::new(reader);
+
     let irc_user = &config.as_ref().unwrap().irc_user;
     let irc_nick = &config.as_ref().unwrap().irc_nick;
     let irc_first_name = &config.as_ref().unwrap().irc_first_name;
     let irc_last_name = &config.as_ref().unwrap().irc_last_name;
-
-    let irc_stream = TcpStream::connect(irc_server).await?;
-
-    let (reader, mut writer) = (&irc_stream, &irc_stream);
-    let reader = BufReader::new(reader);
-    let mut lines_from_server = futures::StreamExt::fuse(reader.lines());
 
     let irc_user = format!("USER {} 0 * :{} {}\n", irc_user, irc_first_name, irc_last_name);
     let irc_nick = format!("NICK {}\n", irc_nick);
     writer.write_all(irc_user.as_bytes()).await?;
     writer.write_all(irc_nick.as_bytes()).await?;
 
-    loop {
-        select! {
-            line = lines_from_server.next().fuse() => match line {
-                Some(line) => {
-                    let line = line?;
-                    let message = line.parse::<IrcMessage>().unwrap();
+    let mut lines = reader.lines();
+    while let Some(line) = lines.next().await {
+        let line = line?;
+        let message = line.parse::<IrcMessage>().unwrap();
 
-                    match message.command {
-                        Command::PING(ref server, ref _server_two) => {
-                            let cmd = Command::new("PONG", vec![server]).unwrap();
-                            let irc_message = format!(
-                                "{}\n", IrcMessage::from(cmd).to_string());
-                            println!("writing pong: {}", irc_message);
-                            writer.write_all(irc_message.as_bytes()).await?;
-                        },
+        println!("{}", message);
 
-                        Command::PRIVMSG(ref chan, ref msg) => {
-                            send_email(chan.to_string(), msg.to_string());
-                        },
+        match message.command {
 
-                        _ => continue,
-                    };
+            Command::PING(ref server, ref _server_two) => {
+                let cmd = Command::new("PONG", vec![server]).unwrap();
+                let irc_message = format!(
+                    "{}\n", IrcMessage::from(cmd).to_string());
+                println!("writing pong: {}", irc_message);
+                writer.write_all(irc_message.as_bytes()).await?;
+            },
 
-                    println!("{}", line);
-                },
-                None => break,
-            }
+            Command::PRIVMSG(ref chan, ref msg) => {
+                send_email(chan.to_string(), msg.to_string());
+            },
+
+            _ => continue,
         }
     }
+    println!("listener done\n");
     Ok(())
 }
 
