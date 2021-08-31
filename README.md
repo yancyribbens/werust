@@ -1,2 +1,2 @@
 # we-rust 
-WeRust translates irc messages to email and back again.
+moved here: https://github.com/yancyribbens/weerust
